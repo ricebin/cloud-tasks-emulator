@@ -1,4 +1,4 @@
-package main
+package cloud_task_emulator
 
 import (
 	"bytes"
@@ -310,11 +310,6 @@ func dispatch(retry bool, taskState *tasks.Task) int {
 		req, _ = http.NewRequest(method, httpRequest.GetUrl(), bytes.NewBuffer(httpRequest.GetBody()))
 
 		headers = httpRequest.GetHeaders()
-
-		if auth := httpRequest.GetOidcToken(); auth != nil {
-			tokenStr := createOIDCToken(auth.ServiceAccountEmail, httpRequest.GetUrl(), auth.Audience)
-			headers["Authorization"] = "Bearer " + tokenStr
-		}
 
 		// Headers as per https://cloud.google.com/tasks/docs/creating-http-target-tasks#handler
 		// TODO: optional headers

@@ -1,4 +1,4 @@
-package main_test
+package cloud_task_emulator_test
 
 import (
 	"context"
@@ -8,16 +8,14 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt"
-
 	. "cloud.google.com/go/cloudtasks/apiv2"
-	. "github.com/aertje/cloud-tasks-emulator"
+	. "github.com/aertje/cloud-tasks-emulator/pkg/cloud_task_emulator"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
@@ -44,7 +42,7 @@ func setUp(t *testing.T, options ServerOptions) (*grpc.Server, *Client) {
 
 	lis, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
-		log.Fatal(err)
+		t.Fatal(err)
 	}
 	go serv.Serve(lis)
 
@@ -56,7 +54,7 @@ func setUp(t *testing.T, options ServerOptions) (*grpc.Server, *Client) {
 
 	client, err := NewClient(context.Background(), clientOpt)
 	if err != nil {
-		log.Fatal(err)
+		t.Fatal(err)
 	}
 
 	return serv, client
@@ -125,8 +123,8 @@ func TestCreateTaskRejectsDuplicateName(t *testing.T) {
 	createdQueue := createTestQueue(t, client)
 	defer tearDownQueue(t, client, createdQueue)
 
-	srv, receivedRequests := startTestServer()
-	defer srv.Shutdown(context.Background())
+	testServerUrl, receivedRequests, closer := startTestServer()
+	defer closer()
 
 	createTaskRequest := taskspb.CreateTaskRequest{
 		Parent: createdQueue.GetName(),
@@ -134,7 +132,7 @@ func TestCreateTaskRejectsDuplicateName(t *testing.T) {
 			Name: createdQueue.GetName() + "/tasks/dedupe-this-task",
 			MessageType: &taskspb.Task_HttpRequest{
 				HttpRequest: &taskspb.HttpRequest{
-					Url: "http://localhost:5000/success",
+					Url: testServerUrl + "/success",
 				},
 			},
 		},
@@ -285,8 +283,8 @@ func TestPurgeQueueDoesNotReleaseTaskNamesByDefault(t *testing.T) {
 	createdQueue := createTestQueue(t, client)
 	defer tearDownQueue(t, client, createdQueue)
 
-	srv, receivedRequests := startTestServer()
-	defer srv.Shutdown(context.Background())
+	testServerUrl, receivedRequests, closer := startTestServer()
+	defer closer()
 
 	createTaskRequest := taskspb.CreateTaskRequest{
 		Parent: createdQueue.GetName(),
@@ -295,7 +293,7 @@ func TestPurgeQueueDoesNotReleaseTaskNamesByDefault(t *testing.T) {
 			MessageType: &taskspb.Task_HttpRequest{
 				HttpRequest: &taskspb.HttpRequest{
 					// Use the not_found handler to prove that purge stops any further retries
-					Url: "http://localhost:5000/not_found",
+					Url: testServerUrl + "/not_found",
 				},
 			},
 		},
@@ -335,8 +333,8 @@ func TestPurgeQueueOptionallyPerformsHardReset(t *testing.T) {
 	createdQueue := createTestQueue(t, client)
 	defer tearDownQueue(t, client, createdQueue)
 
-	srv, receivedRequests := startTestServer()
-	defer srv.Shutdown(context.Background())
+	testServerUrl, receivedRequests, closer := startTestServer()
+	defer closer()
 
 	createTaskRequest := taskspb.CreateTaskRequest{
 		Parent: createdQueue.GetName(),
@@ -345,7 +343,7 @@ func TestPurgeQueueOptionallyPerformsHardReset(t *testing.T) {
 			MessageType: &taskspb.Task_HttpRequest{
 				HttpRequest: &taskspb.HttpRequest{
 					// Use the not_found handler to prove that purge stops any further retries
-					Url: "http://localhost:5000/not_found",
+					Url: testServerUrl + "/not_found",
 				},
 			},
 		},
@@ -392,8 +390,8 @@ func TestListTasks(t *testing.T) {
 	serv, client := setUp(t, ServerOptions{})
 	defer tearDown(t, serv)
 
-	srv, _ := startTestServer()
-	defer srv.Shutdown(context.Background())
+	testServerUrl, _, closer := startTestServer()
+	defer closer()
 
 	createdQueue := createTestQueue(t, client)
 
@@ -403,7 +401,7 @@ func TestListTasks(t *testing.T) {
 			Name: createdQueue.GetName() + "/tasks/my-test-task",
 			MessageType: &taskspb.Task_HttpRequest{
 				HttpRequest: &taskspb.HttpRequest{
-					Url: "http://localhost:5000/success",
+					Url: testServerUrl + "/success",
 				},
 			},
 		},
@@ -443,8 +441,8 @@ func TestSuccessTaskExecution(t *testing.T) {
 	serv, client := setUp(t, ServerOptions{})
 	defer tearDown(t, serv)
 
-	srv, receivedRequests := startTestServer()
-	defer srv.Shutdown(context.Background())
+	testServerUrl, receivedRequests, closer := startTestServer()
+	defer closer()
 
 	createdQueue := createTestQueue(t, client)
 	defer tearDownQueue(t, client, createdQueue)
@@ -455,7 +453,7 @@ func TestSuccessTaskExecution(t *testing.T) {
 			Name: createdQueue.GetName() + "/tasks/my-test-task",
 			MessageType: &taskspb.Task_HttpRequest{
 				HttpRequest: &taskspb.HttpRequest{
-					Url: "http://localhost:5000/success",
+					Url: testServerUrl + "/success",
 				},
 			},
 		},
@@ -495,11 +493,11 @@ func TestSuccessAppEngineTaskExecution(t *testing.T) {
 	serv, client := setUp(t, ServerOptions{})
 	defer tearDown(t, serv)
 
-	defer os.Unsetenv("APP_ENGINE_EMULATOR_HOST")
-	os.Setenv("APP_ENGINE_EMULATOR_HOST", "http://localhost:5000")
+	testServerUrl, receivedRequests, closer := startTestServer()
+	defer closer()
 
-	srv, receivedRequests := startTestServer()
-	defer srv.Shutdown(context.Background())
+	defer os.Unsetenv("APP_ENGINE_EMULATOR_HOST")
+	os.Setenv("APP_ENGINE_EMULATOR_HOST", testServerUrl)
 
 	createdQueue := createTestQueue(t, client)
 	defer tearDownQueue(t, client, createdQueue)
@@ -543,8 +541,8 @@ func TestErrorTaskExecution(t *testing.T) {
 	serv, client := setUp(t, ServerOptions{})
 	defer tearDown(t, serv)
 
-	srv, receivedRequests := startTestServer()
-	defer srv.Shutdown(context.Background())
+	testServerUrl, receivedRequests, closer := startTestServer()
+	defer closer()
 
 	createdQueue := createTestQueue(t, client)
 	defer tearDownQueue(t, client, createdQueue)
@@ -554,7 +552,7 @@ func TestErrorTaskExecution(t *testing.T) {
 		Task: &taskspb.Task{
 			MessageType: &taskspb.Task_HttpRequest{
 				HttpRequest: &taskspb.HttpRequest{
-					Url: "http://localhost:5000/not_found",
+					Url: testServerUrl + "/not_found",
 				},
 			},
 		},
@@ -627,57 +625,6 @@ func TestErrorTaskExecution(t *testing.T) {
 	gettedTask, err := client.GetTask(context.Background(), &getTaskRequest)
 	require.NoError(t, err)
 	assert.EqualValues(t, 4, gettedTask.GetDispatchCount())
-}
-
-func TestOIDCAuthenticatedTaskExecution(t *testing.T) {
-	serv, client := setUp(t, ServerOptions{})
-	defer tearDown(t, serv)
-
-	OpenIDConfig.IssuerURL = "http://localhost:8980"
-
-	srv, receivedRequests := startTestServer()
-	defer srv.Shutdown(context.Background())
-
-	createdQueue := createTestQueue(t, client)
-	defer tearDownQueue(t, client, createdQueue)
-
-	createTaskRequest := taskspb.CreateTaskRequest{
-		Parent: createdQueue.GetName(),
-		Task: &taskspb.Task{
-			MessageType: &taskspb.Task_HttpRequest{
-				HttpRequest: &taskspb.HttpRequest{
-					Url: "http://localhost:5000/success?foo=bar",
-					AuthorizationHeader: &taskspb.HttpRequest_OidcToken{
-						OidcToken: &taskspb.OidcToken{
-							ServiceAccountEmail: "emulator@service.test",
-						},
-					},
-				},
-			},
-		},
-	}
-	_, err := client.CreateTask(context.Background(), &createTaskRequest)
-	require.NoError(t, err)
-
-	// Wait for it to perform the http request
-	receivedRequest, err := awaitHttpRequest(receivedRequests)
-	require.NoError(t, err)
-
-	// Validate that the call was actually made properly
-	require.NotNil(t, receivedRequest, "Request was received")
-	authHeader := receivedRequest.Header.Get("Authorization")
-	assert.NotNil(t, authHeader, "Has Authorization header")
-	assert.Regexp(t, "^Bearer [a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+$", authHeader)
-	tokenStr := strings.Replace(authHeader, "Bearer ", "", 1)
-
-	// Full token validation is done in the docker smoketests and the oidc internal tests
-	token, _, err := new(jwt.Parser).ParseUnverified(tokenStr, &OpenIDConnectClaims{})
-	require.NoError(t, err)
-
-	claims := token.Claims.(*OpenIDConnectClaims)
-	assert.Equal(t, "http://localhost:5000/success?foo=bar", claims.Audience, "Specifies audience")
-	assert.Equal(t, "emulator@service.test", claims.Email, "Specifies email")
-	assert.Equal(t, "http://localhost:8980", claims.Issuer, "Specifies issuer")
 }
 
 func newQueue(formattedParent, name string) *taskspb.Queue {
@@ -779,7 +726,7 @@ func awaitHttpRequestWithTimeout(receivedRequests <-chan *http.Request, timeout 
 	}
 }
 
-func startTestServer() (*http.Server, <-chan *http.Request) {
+func startTestServer() (string, <-chan *http.Request, func()) {
 	mux := http.NewServeMux()
 	requestChannel := make(chan *http.Request, 1)
 	mux.HandleFunc("/success", func(w http.ResponseWriter, r *http.Request) {
@@ -791,9 +738,6 @@ func startTestServer() (*http.Server, <-chan *http.Request) {
 		requestChannel <- r
 	})
 
-	srv := &http.Server{Addr: "localhost:5000", Handler: mux}
-
-	go srv.ListenAndServe()
-
-	return srv, requestChannel
+	s := httptest.NewServer(mux)
+	return s.URL, requestChannel, s.Close
 }
