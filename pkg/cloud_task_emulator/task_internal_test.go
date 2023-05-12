@@ -1,9 +1,10 @@
-package cloud_task_emulator
+package cloud_task_emulator_test
 
 import (
 	"os"
 	"testing"
 
+	. "github.com/ricebin/cloud-tasks-emulator/pkg/cloud_task_emulator"
 	"github.com/stretchr/testify/assert"
 	taskspb "google.golang.org/genproto/googleapis/cloud/tasks/v2"
 )
@@ -14,7 +15,7 @@ func TestSetInitialTaskStateAppEngineNoEmulatorDefaults(t *testing.T) {
 			AppEngineHttpRequest: &taskspb.AppEngineHttpRequest{},
 		},
 	}
-	setInitialTaskState(taskState, "projects/bluebook/locations/us-east1/queues/agentq")
+	SetInitialTaskState(taskState, "projects/bluebook/locations/us-east1/queues/agentq")
 
 	assert.Equal(t, "https://bluebook.appspot.com", taskState.GetAppEngineHttpRequest().GetAppEngineRouting().GetHost())
 }
@@ -31,7 +32,7 @@ func TestInitialTaskStateAppEngineNoEmulatorTargeted(t *testing.T) {
 			},
 		},
 	}
-	setInitialTaskState(taskState, "projects/bluebook/locations/us-east1/queues/agentq")
+	SetInitialTaskState(taskState, "projects/bluebook/locations/us-east1/queues/agentq")
 
 	assert.Equal(t, "https://2-dot-v1-dot-worker-dot-bluebook.appspot.com", taskState.GetAppEngineHttpRequest().GetAppEngineRouting().GetHost())
 }
@@ -45,7 +46,7 @@ func TestSetInitialTaskStateAppEngineEmulatorDefaults(t *testing.T) {
 			AppEngineHttpRequest: &taskspb.AppEngineHttpRequest{},
 		},
 	}
-	setInitialTaskState(taskState, "projects/bluebook/locations/us-east1/queues/agentq")
+	SetInitialTaskState(taskState, "projects/bluebook/locations/us-east1/queues/agentq")
 
 	assert.Equal(t, "http://localhost:1234", taskState.GetAppEngineHttpRequest().GetAppEngineRouting().GetHost())
 }
@@ -65,7 +66,7 @@ func TestSetInitialTaskStateAppEngineEmulatorTargeted(t *testing.T) {
 			},
 		},
 	}
-	setInitialTaskState(taskState, "projects/bluebook/locations/us-east1/queues/agentq")
+	SetInitialTaskState(taskState, "projects/bluebook/locations/us-east1/queues/agentq")
 
 	assert.Equal(t, "http://2.v1.worker.nginx", taskState.GetAppEngineHttpRequest().GetAppEngineRouting().GetHost())
 }

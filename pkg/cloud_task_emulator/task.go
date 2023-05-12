@@ -66,7 +66,7 @@ type Task struct {
 
 // NewTask creates a new task for the specified queue
 func NewTask(queue *Queue, taskState *tasks.Task, onDone func(task *Task)) *Task {
-	setInitialTaskState(taskState, queue.name)
+	SetInitialTaskState(taskState, queue.name)
 
 	task := &Task{
 		queue:  queue,
@@ -78,7 +78,7 @@ func NewTask(queue *Queue, taskState *tasks.Task, onDone func(task *Task)) *Task
 	return task
 }
 
-func setInitialTaskState(taskState *tasks.Task, queueName string) {
+func SetInitialTaskState(taskState *tasks.Task, queueName string) {
 	if taskState.GetName() == "" {
 		taskID := strconv.FormatUint(uint64(rand.Uint64()), 10)
 		taskState.Name = queueName + "/tasks/" + taskID

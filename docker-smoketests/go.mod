@@ -1,4 +1,4 @@
-module github.com/aertje/cloud-tasks-emulator/smoketests
+module github.com/ricebin/cloud-tasks-emulator/smoketests
 
 go 1.13
 
