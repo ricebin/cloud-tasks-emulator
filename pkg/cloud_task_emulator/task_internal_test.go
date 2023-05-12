@@ -4,9 +4,9 @@ import (
 	"os"
 	"testing"
 
+	taskspb "cloud.google.com/go/cloudtasks/apiv2/cloudtaskspb"
 	. "github.com/ricebin/cloud-tasks-emulator/pkg/cloud_task_emulator"
 	"github.com/stretchr/testify/assert"
-	taskspb "google.golang.org/genproto/googleapis/cloud/tasks/v2"
 )
 
 func TestSetInitialTaskStateAppEngineNoEmulatorDefaults(t *testing.T) {

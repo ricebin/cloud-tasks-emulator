@@ -8,8 +8,8 @@ import (
 	"regexp"
 	"strings"
 
+	tasks "cloud.google.com/go/cloudtasks/apiv2/cloudtaskspb"
 	"github.com/ricebin/cloud-tasks-emulator/pkg/cloud_task_emulator"
-	tasks "google.golang.org/genproto/googleapis/cloud/tasks/v2"
 	"google.golang.org/grpc"
 )
 

@@ -15,12 +15,12 @@ import (
 	"time"
 
 	. "cloud.google.com/go/cloudtasks/apiv2"
+	taskspb "cloud.google.com/go/cloudtasks/apiv2/cloudtaskspb"
 	. "github.com/ricebin/cloud-tasks-emulator/pkg/cloud_task_emulator"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
-	taskspb "google.golang.org/genproto/googleapis/cloud/tasks/v2"
 	"google.golang.org/grpc"
 	grpcCodes "google.golang.org/grpc/codes"
 	grpcStatus "google.golang.org/grpc/status"
