@@ -15,10 +15,11 @@ import (
 
 	tasks "cloud.google.com/go/cloudtasks/apiv2/cloudtaskspb"
 	"github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/ptypes"
 	pduration "github.com/golang/protobuf/ptypes/duration"
 	ptimestamp "github.com/golang/protobuf/ptypes/timestamp"
 	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 var r *regexp.Regexp
@@ -84,12 +85,12 @@ func SetInitialTaskState(taskState *tasks.Task, queueName string) {
 		taskState.Name = queueName + "/tasks/" + taskID
 	}
 
-	taskState.CreateTime = ptypes.TimestampNow()
+	taskState.CreateTime = timestamppb.Now()
 	// For some reason the cloud does not set nanos
 	taskState.CreateTime.Nanos = 0
 
 	if taskState.GetScheduleTime() == nil {
-		taskState.ScheduleTime = ptypes.TimestampNow()
+		taskState.ScheduleTime = timestamppb.Now()
 	}
 	if taskState.GetDispatchDeadline() == nil {
 		taskState.DispatchDeadline = &pduration.Duration{Seconds: 600}
@@ -181,8 +182,8 @@ func updateStateForReschedule(task *Task) *tasks.Task {
 
 	retryConfig := queueState.GetRetryConfig()
 
-	minBackoff, _ := ptypes.Duration(retryConfig.GetMinBackoff())
-	maxBackoff, _ := ptypes.Duration(retryConfig.GetMaxBackoff())
+	minBackoff := retryConfig.GetMinBackoff().AsDuration()
+	maxBackoff := retryConfig.GetMaxBackoff().AsDuration()
 
 	doubling := taskState.GetDispatchCount() - 1
 	if doubling > retryConfig.MaxDoublings {
@@ -192,7 +193,7 @@ func updateStateForReschedule(task *Task) *tasks.Task {
 	if backoff > maxBackoff {
 		backoff = maxBackoff
 	}
-	protoBackoff := ptypes.DurationProto(backoff)
+	protoBackoff := durationpb.New(backoff)
 	prevScheduleTime := taskState.GetScheduleTime()
 
 	// Avoid int32 nanos overflow
@@ -218,7 +219,7 @@ func updateStateForDispatch(task *Task) *tasks.Task {
 	task.stateMutex.Lock()
 	taskState := task.state
 
-	dispatchTime := ptypes.TimestampNow()
+	dispatchTime := timestamppb.Now()
 
 	taskState.LastAttempt = &tasks.Attempt{
 		ScheduleTime: &ptimestamp.Timestamp{
@@ -252,7 +253,7 @@ func updateStateAfterDispatch(task *Task, statusCode int) *tasks.Task {
 
 	lastAttempt := taskState.GetLastAttempt()
 
-	lastAttempt.ResponseTime = ptypes.TimestampNow()
+	lastAttempt.ResponseTime = timestamppb.Now()
 	lastAttempt.ResponseStatus = &rpcstatus.Status{
 		Code:    rpcCode,
 		Message: fmt.Sprintf("%s(%d): HTTP status code %d", rpcCodeName, rpcCode, statusCode),
@@ -287,7 +288,7 @@ func (task *Task) reschedule(retry bool, statusCode int) {
 
 func dispatch(retry bool, taskState *tasks.Task) int {
 	client := &http.Client{}
-	client.Timeout, _ = ptypes.Duration(taskState.GetDispatchDeadline())
+	client.Timeout = taskState.GetDispatchDeadline().AsDuration()
 
 	var req *http.Request
 	var headers map[string]string
@@ -295,7 +296,7 @@ func dispatch(retry bool, taskState *tasks.Task) int {
 	httpRequest := taskState.GetHttpRequest()
 	appEngineHTTPRequest := taskState.GetAppEngineHttpRequest()
 
-	scheduled, _ := ptypes.Timestamp(taskState.GetScheduleTime())
+	scheduled := taskState.GetScheduleTime().AsTime()
 	nameParts := parseTaskName(taskState)
 
 	headerQueueName := nameParts.queueId
@@ -389,7 +390,7 @@ func (task *Task) Delete() {
 // Schedule schedules the task for execution.
 // It is initially called by the queue, later by the task reschedule.
 func (task *Task) Schedule() {
-	scheduled, _ := ptypes.Timestamp(task.state.GetScheduleTime())
+	scheduled := task.state.GetScheduleTime().AsTime()
 
 	fromNow := time.Until(scheduled)
 
