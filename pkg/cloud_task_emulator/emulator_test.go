@@ -323,50 +323,52 @@ func TestPurgeQueueOptionallyPerformsHardReset(t *testing.T) {
 func TestListTasks(t *testing.T) {
 	client := RunT(t)
 
-	testServerUrl, _ := startTestServer(t)
-
 	createdQueue := createTestQueue(t, client)
 
 	createTaskRequest := taskspb.CreateTaskRequest{
 		Parent: createdQueue.GetName(),
 		Task: &taskspb.Task{
-			Name: createdQueue.GetName() + "/tasks/my-test-task",
 			MessageType: &taskspb.Task_HttpRequest{
 				HttpRequest: &taskspb.HttpRequest{
-					Url: testServerUrl + "/success",
+					Url: "http://does.not.exist/",
 				},
 			},
 		},
 	}
 
-	createdTask, err := client.CreateTask(context.Background(), &createTaskRequest)
+	createdTask1, err := client.CreateTask(context.Background(), &createTaskRequest)
 	require.NoError(t, err)
 
-	listTasksRequest := taskspb.ListTasksRequest{
-		Parent: createdQueue.GetName(),
+	{
+		listTasksRequest := taskspb.ListTasksRequest{
+			Parent: createdQueue.GetName(),
+		}
+
+		tasksIterator := client.ListTasks(context.Background(), &listTasksRequest)
+		assert.NoError(t, err)
+
+		listedTask, err := tasksIterator.Next()
+		assert.NoError(t, err)
+		assert.Equal(t, listedTask.GetName(), createdTask1.GetName())
+		_, err = tasksIterator.Next()
+		assert.EqualError(t, err, "no more items in iterator")
 	}
 
-	tasksIterator := client.ListTasks(context.Background(), &listTasksRequest)
-	assert.NoError(t, err)
-
-	listedTask, err := tasksIterator.Next()
-	assert.NoError(t, err)
-	assert.Equal(t, listedTask.GetName(), createdTask.GetName())
-	_, err = tasksIterator.Next()
-	assert.EqualError(t, err, "no more items in iterator")
-
-	deleteQueueRequest := taskspb.DeleteQueueRequest{
-		Name: createdQueue.GetName(),
-	}
-	err = client.DeleteQueue(context.Background(), &deleteQueueRequest)
+	_, err = client.CreateTask(context.Background(), &createTaskRequest)
 	require.NoError(t, err)
 
-	tasksIterator = client.ListTasks(context.Background(), &listTasksRequest)
-	assert.NoError(t, err)
+	{
+		listTasksRequest := taskspb.ListTasksRequest{
+			Parent:   createdQueue.GetName(),
+			PageSize: 1,
+		}
 
-	listedTask, err = tasksIterator.Next()
-	assertIsGrpcError(t, "^Queue does not exist", grpcCodes.NotFound, err)
-	assert.Nil(t, listedTask)
+		page := client.ListTasks(context.Background(), &listTasksRequest)
+
+		all, next := drainAsList(t, page)
+		assert.Empty(t, next)
+		assert.Len(t, all, 2)
+	}
 }
 
 func TestSuccessTaskExecution(t *testing.T) {
@@ -666,4 +668,22 @@ func startTestServer(t *testing.T) (string, <-chan *http.Request) {
 		s.Close()
 	})
 	return s.URL, requestChannel
+}
+
+func drainAsList(t *testing.T, it *TaskIterator) ([]*taskspb.Task, string) {
+	var out []*taskspb.Task
+	for {
+		if n, err := it.Next(); err == iterator.Done {
+			break
+		} else if err != nil {
+			t.Fatal(err)
+		} else {
+			out = append(out, n)
+		}
+	}
+	var next string
+	if it.PageInfo() != nil {
+		next = it.PageInfo().Token
+	}
+	return out, next
 }

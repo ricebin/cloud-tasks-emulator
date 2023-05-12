@@ -3,6 +3,8 @@ package cloud_task_emulator
 import (
 	"context"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -227,19 +229,56 @@ func (s *Server) ListTasks(ctx context.Context, in *tasks.ListTasksRequest) (*ta
 		return nil, status.Errorf(codes.NotFound, "Queue does not exist. If you just created the queue, wait at least a minute for the queue to initialize.")
 	}
 
-	var taskStates []*tasks.Task
-
 	queue.tsMux.Lock()
 	defer queue.tsMux.Unlock()
 
+	l := make([]*Task, 0, len(queue.ts))
 	for _, task := range queue.ts {
 		if task != nil {
-			taskStates = append(taskStates, task.state)
+			l = append(l, task)
 		}
 	}
 
+	sort.SliceStable(l, func(i, j int) bool {
+		return strings.Compare(l[i].state.Name, l[j].state.Name) < 0
+	})
+
+	start := 0
+	if in.PageToken != "" {
+		if pt, err := strconv.Atoi(in.PageToken); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid page token: %s", in.PageToken)
+		} else {
+			start = pt
+		}
+	}
+	l = l[start:]
+
+	// this is the default max
+	pageSize := 1000
+	if in.PageSize < 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid page size: %d", in.PageSize)
+	} else if in.PageSize == 0 {
+		pageSize = 1000
+	} else if in.PageSize > 1000 {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid page size: %d", in.PageSize)
+	} else {
+		pageSize = int(in.PageSize)
+	}
+
+	var next string
+	if len(l) > pageSize {
+		l = l[:pageSize]
+		next = strconv.Itoa(start + pageSize)
+	}
+
+	var taskStates []*tasks.Task
+	for _, task := range l {
+		taskStates = append(taskStates, task.state)
+	}
+
 	return &tasks.ListTasksResponse{
-		Tasks: taskStates,
+		Tasks:         taskStates,
+		NextPageToken: next,
 	}, nil
 }
 
