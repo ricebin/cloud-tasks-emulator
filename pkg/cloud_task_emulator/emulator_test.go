@@ -2,11 +2,8 @@ package cloud_task_emulator_test
 
 import (
 	"context"
-	"flag"
 	"fmt"
-	"log"
 	"math"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,49 +17,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/iterator"
-	"google.golang.org/api/option"
-	"google.golang.org/grpc"
 	grpcCodes "google.golang.org/grpc/codes"
 	grpcStatus "google.golang.org/grpc/status"
 )
 
 var formattedParent = formatParent("TestProject", "TestLocation")
-
-func TestMain(m *testing.M) {
-	flag.Parse()
-
-	os.Exit(m.Run())
-}
-
-func setUp(t *testing.T, options ServerOptions) (*grpc.Server, *Client) {
-	serv := grpc.NewServer()
-	emulatorServer := NewServer()
-	emulatorServer.Options = options
-	taskspb.RegisterCloudTasksServer(serv, emulatorServer)
-
-	lis, err := net.Listen("tcp", "localhost:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	go serv.Serve(lis)
-
-	conn, err := grpc.Dial(lis.Addr().String(), grpc.WithInsecure())
-	if err != nil {
-		log.Fatal(err)
-	}
-	clientOpt := option.WithGRPCConn(conn)
-
-	client, err := NewClient(context.Background(), clientOpt)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	return serv, client
-}
-
-func tearDown(t *testing.T, serv *grpc.Server) {
-	serv.Stop()
-}
 
 func tearDownQueue(t *testing.T, client *Client, queue *taskspb.Queue) {
 	deleteQueueRequest := taskspb.DeleteQueueRequest{
@@ -75,8 +34,8 @@ func tearDownQueue(t *testing.T, client *Client, queue *taskspb.Queue) {
 }
 
 func TestCloudTasksCreateQueue(t *testing.T) {
-	serv, client := setUp(t, ServerOptions{})
-	defer tearDown(t, serv)
+	client := RunT(t)
+
 	queue := newQueue(formattedParent, "testCloudTasksCreateQueue")
 	request := taskspb.CreateQueueRequest{
 		Parent: formattedParent,
@@ -90,8 +49,7 @@ func TestCloudTasksCreateQueue(t *testing.T) {
 }
 
 func TestCreateTask(t *testing.T) {
-	serv, client := setUp(t, ServerOptions{})
-	defer tearDown(t, serv)
+	client := RunT(t)
 
 	createdQueue := createTestQueue(t, client)
 	defer tearDownQueue(t, client, createdQueue)
@@ -117,8 +75,7 @@ func TestCreateTask(t *testing.T) {
 }
 
 func TestCreateTaskRejectsDuplicateName(t *testing.T) {
-	serv, client := setUp(t, ServerOptions{})
-	defer tearDown(t, serv)
+	client := RunT(t)
 
 	createdQueue := createTestQueue(t, client)
 	defer tearDownQueue(t, client, createdQueue)
@@ -171,8 +128,7 @@ func TestCreateTaskRejectsDuplicateName(t *testing.T) {
 }
 
 func TestCreateTaskRejectsInvalidName(t *testing.T) {
-	serv, client := setUp(t, ServerOptions{})
-	defer tearDown(t, serv)
+	client := RunT(t)
 
 	createdQueue := createTestQueue(t, client)
 	defer tearDownQueue(t, client, createdQueue)
@@ -196,8 +152,7 @@ func TestCreateTaskRejectsInvalidName(t *testing.T) {
 }
 
 func TestCreateTaskRejectsNameForOtherQueue(t *testing.T) {
-	serv, client := setUp(t, ServerOptions{})
-	defer tearDown(t, serv)
+	client := RunT(t)
 
 	createdQueue := createTestQueue(t, client)
 	defer tearDownQueue(t, client, createdQueue)
@@ -221,9 +176,7 @@ func TestCreateTaskRejectsNameForOtherQueue(t *testing.T) {
 }
 
 func TestGetQueueExists(t *testing.T) {
-	serv, client := setUp(t, ServerOptions{})
-	defer tearDown(t, serv)
-
+	client := RunT(t)
 	createdQueue := createTestQueue(t, client)
 
 	getQueueRequest := taskspb.GetQueueRequest{
@@ -237,8 +190,7 @@ func TestGetQueueExists(t *testing.T) {
 }
 
 func TestGetQueueNeverExisted(t *testing.T) {
-	serv, client := setUp(t, ServerOptions{})
-	defer tearDown(t, serv)
+	client := RunT(t)
 
 	getQueueRequest := taskspb.GetQueueRequest{
 		Name: "hello_q",
@@ -252,8 +204,7 @@ func TestGetQueueNeverExisted(t *testing.T) {
 }
 
 func TestGetQueuePreviouslyExisted(t *testing.T) {
-	serv, client := setUp(t, ServerOptions{})
-	defer tearDown(t, serv)
+	client := RunT(t)
 
 	createdQueue := createTestQueue(t, client)
 
@@ -277,8 +228,7 @@ func TestGetQueuePreviouslyExisted(t *testing.T) {
 }
 
 func TestPurgeQueueDoesNotReleaseTaskNamesByDefault(t *testing.T) {
-	serv, client := setUp(t, ServerOptions{})
-	defer tearDown(t, serv)
+	client := RunT(t)
 
 	createdQueue := createTestQueue(t, client)
 	defer tearDownQueue(t, client, createdQueue)
@@ -327,8 +277,7 @@ func TestPurgeQueueDoesNotReleaseTaskNamesByDefault(t *testing.T) {
 }
 
 func TestPurgeQueueOptionallyPerformsHardReset(t *testing.T) {
-	serv, client := setUp(t, ServerOptions{HardResetOnPurgeQueue: true})
-	defer tearDown(t, serv)
+	client := RunT(t)
 
 	createdQueue := createTestQueue(t, client)
 	defer tearDownQueue(t, client, createdQueue)
@@ -387,8 +336,7 @@ func TestPurgeQueueOptionallyPerformsHardReset(t *testing.T) {
 }
 
 func TestListTasks(t *testing.T) {
-	serv, client := setUp(t, ServerOptions{})
-	defer tearDown(t, serv)
+	client := RunT(t)
 
 	testServerUrl, _, closer := startTestServer()
 	defer closer()
@@ -438,8 +386,7 @@ func TestListTasks(t *testing.T) {
 }
 
 func TestSuccessTaskExecution(t *testing.T) {
-	serv, client := setUp(t, ServerOptions{})
-	defer tearDown(t, serv)
+	client := RunT(t)
 
 	testServerUrl, receivedRequests, closer := startTestServer()
 	defer closer()
@@ -490,8 +437,7 @@ func TestSuccessTaskExecution(t *testing.T) {
 }
 
 func TestSuccessAppEngineTaskExecution(t *testing.T) {
-	serv, client := setUp(t, ServerOptions{})
-	defer tearDown(t, serv)
+	client := RunT(t)
 
 	testServerUrl, receivedRequests, closer := startTestServer()
 	defer closer()
@@ -538,8 +484,7 @@ func TestSuccessAppEngineTaskExecution(t *testing.T) {
 }
 
 func TestErrorTaskExecution(t *testing.T) {
-	serv, client := setUp(t, ServerOptions{})
-	defer tearDown(t, serv)
+	client := RunT(t)
 
 	testServerUrl, receivedRequests, closer := startTestServer()
 	defer closer()
