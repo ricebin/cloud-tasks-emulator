@@ -23,16 +23,6 @@ import (
 
 var formattedParent = formatParent("TestProject", "TestLocation")
 
-func tearDownQueue(t *testing.T, client *Client, queue *taskspb.Queue) {
-	deleteQueueRequest := taskspb.DeleteQueueRequest{
-		Name: queue.GetName(),
-	}
-	err := client.DeleteQueue(context.Background(), &deleteQueueRequest)
-	require.NoError(t, err)
-	// Wait a moment for the queue to delete and all tasks to definitely be done & not going to fire again
-	time.Sleep(100 * time.Millisecond)
-}
-
 func TestCloudTasksCreateQueue(t *testing.T) {
 	client := RunT(t)
 
@@ -52,7 +42,6 @@ func TestCreateTask(t *testing.T) {
 	client := RunT(t)
 
 	createdQueue := createTestQueue(t, client)
-	defer tearDownQueue(t, client, createdQueue)
 
 	createTaskRequest := taskspb.CreateTaskRequest{
 		Parent: createdQueue.GetName(),
@@ -78,10 +67,8 @@ func TestCreateTaskRejectsDuplicateName(t *testing.T) {
 	client := RunT(t)
 
 	createdQueue := createTestQueue(t, client)
-	defer tearDownQueue(t, client, createdQueue)
 
-	testServerUrl, receivedRequests, closer := startTestServer()
-	defer closer()
+	testServerUrl, receivedRequests := startTestServer(t)
 
 	createTaskRequest := taskspb.CreateTaskRequest{
 		Parent: createdQueue.GetName(),
@@ -131,7 +118,6 @@ func TestCreateTaskRejectsInvalidName(t *testing.T) {
 	client := RunT(t)
 
 	createdQueue := createTestQueue(t, client)
-	defer tearDownQueue(t, client, createdQueue)
 
 	createTaskRequest := taskspb.CreateTaskRequest{
 		Parent: createdQueue.GetName(),
@@ -155,7 +141,6 @@ func TestCreateTaskRejectsNameForOtherQueue(t *testing.T) {
 	client := RunT(t)
 
 	createdQueue := createTestQueue(t, client)
-	defer tearDownQueue(t, client, createdQueue)
 
 	createTaskRequest := taskspb.CreateTaskRequest{
 		Parent: createdQueue.GetName(),
@@ -231,10 +216,8 @@ func TestPurgeQueueDoesNotReleaseTaskNamesByDefault(t *testing.T) {
 	client := RunT(t)
 
 	createdQueue := createTestQueue(t, client)
-	defer tearDownQueue(t, client, createdQueue)
 
-	testServerUrl, receivedRequests, closer := startTestServer()
-	defer closer()
+	testServerUrl, receivedRequests := startTestServer(t)
 
 	createTaskRequest := taskspb.CreateTaskRequest{
 		Parent: createdQueue.GetName(),
@@ -280,10 +263,8 @@ func TestPurgeQueueOptionallyPerformsHardReset(t *testing.T) {
 	client := RunT(t)
 
 	createdQueue := createTestQueue(t, client)
-	defer tearDownQueue(t, client, createdQueue)
 
-	testServerUrl, receivedRequests, closer := startTestServer()
-	defer closer()
+	testServerUrl, receivedRequests := startTestServer(t)
 
 	createTaskRequest := taskspb.CreateTaskRequest{
 		Parent: createdQueue.GetName(),
@@ -314,32 +295,35 @@ func TestPurgeQueueOptionallyPerformsHardReset(t *testing.T) {
 	// In this mode, purging the queue is synchronous so we should be in the empty state straight away
 	time.Sleep(1 * time.Second)
 	assertTaskListIsEmpty(t, client, createdQueue)
-	assertGetTaskFails(t, grpcCodes.NotFound, client, createdTask.GetName())
 
+	// task id is not immediately available for re-use
+	// https://cloud.google.com/tasks/docs/reference/rest/v2beta3/projects.locations.queues.tasks/create#body.request_body.FIELDS.task
+	assertGetTaskFails(t, grpcCodes.FailedPrecondition, client, createdTask.GetName())
+
+	// TODO(ricebin) what should we test here?
 	// And verify that we can now create the task with that name again and it will fire again
-	_, err = client.CreateTask(context.Background(), &createTaskRequest)
-	require.NoError(t, err)
-
-	// Verify that it has now sent the request from the new task
-	receivedRequest, err := awaitHttpRequest(receivedRequests)
-	require.NotNil(t, receivedRequest, "Request was received")
-	require.NoError(t, err)
-	// Note that the execution count is reset to 0
-	assertHeadersMatch(
-		t,
-		map[string]string{
-			"X-CloudTasks-TaskExecutionCount": "0",
-			"X-CloudTasks-TaskRetryCount":     "0",
-		},
-		receivedRequest,
-	)
+	//_, err = client.CreateTask(context.Background(), &createTaskRequest)
+	//require.NoError(t, err)
+	//
+	//// Verify that it has now sent the request from the new task
+	//receivedRequest, err := awaitHttpRequest(receivedRequests)
+	//require.NotNil(t, receivedRequest, "Request was received")
+	//require.NoError(t, err)
+	//// Note that the execution count is reset to 0
+	//assertHeadersMatch(
+	//	t,
+	//	map[string]string{
+	//		"X-CloudTasks-TaskExecutionCount": "0",
+	//		"X-CloudTasks-TaskRetryCount":     "0",
+	//	},
+	//	receivedRequest,
+	//)
 }
 
 func TestListTasks(t *testing.T) {
 	client := RunT(t)
 
-	testServerUrl, _, closer := startTestServer()
-	defer closer()
+	testServerUrl, _ := startTestServer(t)
 
 	createdQueue := createTestQueue(t, client)
 
@@ -388,11 +372,9 @@ func TestListTasks(t *testing.T) {
 func TestSuccessTaskExecution(t *testing.T) {
 	client := RunT(t)
 
-	testServerUrl, receivedRequests, closer := startTestServer()
-	defer closer()
+	testServerUrl, receivedRequests := startTestServer(t)
 
 	createdQueue := createTestQueue(t, client)
-	defer tearDownQueue(t, client, createdQueue)
 
 	createTaskRequest := taskspb.CreateTaskRequest{
 		Parent: createdQueue.GetName(),
@@ -439,14 +421,12 @@ func TestSuccessTaskExecution(t *testing.T) {
 func TestSuccessAppEngineTaskExecution(t *testing.T) {
 	client := RunT(t)
 
-	testServerUrl, receivedRequests, closer := startTestServer()
-	defer closer()
+	testServerUrl, receivedRequests := startTestServer(t)
 
 	defer os.Unsetenv("APP_ENGINE_EMULATOR_HOST")
 	os.Setenv("APP_ENGINE_EMULATOR_HOST", testServerUrl)
 
 	createdQueue := createTestQueue(t, client)
-	defer tearDownQueue(t, client, createdQueue)
 
 	createTaskRequest := taskspb.CreateTaskRequest{
 		Parent: createdQueue.GetName(),
@@ -486,11 +466,9 @@ func TestSuccessAppEngineTaskExecution(t *testing.T) {
 func TestErrorTaskExecution(t *testing.T) {
 	client := RunT(t)
 
-	testServerUrl, receivedRequests, closer := startTestServer()
-	defer closer()
+	testServerUrl, receivedRequests := startTestServer(t)
 
 	createdQueue := createTestQueue(t, client)
-	defer tearDownQueue(t, client, createdQueue)
 
 	createTaskRequest := taskspb.CreateTaskRequest{
 		Parent: createdQueue.GetName(),
@@ -671,7 +649,7 @@ func awaitHttpRequestWithTimeout(receivedRequests <-chan *http.Request, timeout 
 	}
 }
 
-func startTestServer() (string, <-chan *http.Request, func()) {
+func startTestServer(t *testing.T) (string, <-chan *http.Request) {
 	mux := http.NewServeMux()
 	requestChannel := make(chan *http.Request, 1)
 	mux.HandleFunc("/success", func(w http.ResponseWriter, r *http.Request) {
@@ -684,5 +662,8 @@ func startTestServer() (string, <-chan *http.Request, func()) {
 	})
 
 	s := httptest.NewServer(mux)
-	return s.URL, requestChannel, s.Close
+	t.Cleanup(func() {
+		s.Close()
+	})
+	return s.URL, requestChannel
 }
